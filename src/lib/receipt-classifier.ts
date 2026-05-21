@@ -57,6 +57,100 @@ function bytesToLatin1(bytes: Uint8Array): string {
   return s;
 }
 
+function skipPdfSpace(raw: string, i: number): number {
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "%") {
+      while (i < raw.length && raw[i] !== "\n" && raw[i] !== "\r") i++;
+      continue;
+    }
+    if (ch === "\0" || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function parsePdfStringToken(raw: string, start: number): { value: string; next: number } | null {
+  let i = skipPdfSpace(raw, start);
+
+  if (raw[i] === "<" && raw[i + 1] !== "<") {
+    i++;
+    let value = "";
+    while (i < raw.length && raw[i] !== ">") {
+      if (!/\s/.test(raw[i])) value += raw[i].toLowerCase();
+      i++;
+    }
+    return raw[i] === ">" ? { value: `<${value}>`, next: i + 1 } : null;
+  }
+
+  if (raw[i] === "(") {
+    i++;
+    let depth = 1;
+    let value = "";
+    while (i < raw.length && depth > 0) {
+      const ch = raw[i];
+      if (ch === "\\") {
+        value += ch + (raw[i + 1] ?? "");
+        i += 2;
+        continue;
+      }
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (depth > 0) value += ch;
+      i++;
+    }
+    return depth === 0 ? { value: `(${value})`, next: i } : null;
+  }
+
+  return null;
+}
+
+function parseIdArrayAt(raw: string, idIndex: number): { a: string; b: string } | null {
+  let i = skipPdfSpace(raw, idIndex + 3);
+  if (raw[i] !== "[") return null;
+  i++;
+  const first = parsePdfStringToken(raw, i);
+  if (!first) return null;
+  const second = parsePdfStringToken(raw, first.next);
+  if (!second) return null;
+  return { a: first.value, b: second.value };
+}
+
+function extractTrailerIds(raw: string): Array<{ index: number; a: string; b: string }> {
+  const ids: Array<{ index: number; a: string; b: string }> = [];
+  const startXrefMatches = [...raw.matchAll(/startxref\s+(\d+)/g)];
+
+  for (const match of startXrefMatches) {
+    const offset = Number(match[1]);
+    if (!Number.isFinite(offset) || offset < 0 || offset >= raw.length) continue;
+    const window = raw.slice(offset, Math.min(raw.length, offset + 6000));
+    const localId = window.indexOf("/ID");
+    if (localId === -1) continue;
+    const parsed = parseIdArrayAt(window, localId);
+    if (parsed) ids.push({ index: offset + localId, ...parsed });
+  }
+
+  for (const match of raw.matchAll(/\btrailer\b/g)) {
+    const local = raw.slice(match.index ?? 0, Math.min(raw.length, (match.index ?? 0) + 6000));
+    const localId = local.indexOf("/ID");
+    if (localId === -1) continue;
+    const parsed = parseIdArrayAt(local, localId);
+    if (parsed) ids.push({ index: (match.index ?? 0) + localId, ...parsed });
+  }
+
+  if (ids.length === 0) {
+    for (const match of raw.matchAll(/\/ID\b/g)) {
+      const parsed = parseIdArrayAt(raw, match.index ?? 0);
+      if (parsed) ids.push({ index: match.index ?? 0, ...parsed });
+    }
+  }
+
+  return ids;
+}
+
 interface FingerprintResult {
   count: number;
   identical?: boolean;
@@ -65,18 +159,7 @@ interface FingerprintResult {
 
 function analyzeFingerprints(bytes: Uint8Array): FingerprintResult {
   const raw = bytesToLatin1(bytes);
-  // /ID can appear as hex strings <...> or literal strings (...). Allow whitespace/newlines.
-  // Use [\s\S] for cross-line tolerance.
-  const hexRe = /\/ID\s*\[\s*<([0-9a-fA-F\s]+)>\s*<([0-9a-fA-F\s]+)>\s*\]/g;
-  const litRe = /\/ID\s*\[\s*\(((?:\\.|[^\\)])*)\)\s*\(((?:\\.|[^\\)])*)\)\s*\]/g;
-
-  const all: Array<{ index: number; a: string; b: string }> = [];
-  for (const m of raw.matchAll(hexRe)) {
-    all.push({ index: m.index ?? 0, a: m[1].replace(/\s+/g, "").toLowerCase(), b: m[2].replace(/\s+/g, "").toLowerCase() });
-  }
-  for (const m of raw.matchAll(litRe)) {
-    all.push({ index: m.index ?? 0, a: m[1], b: m[2] });
-  }
+  const all = extractTrailerIds(raw);
   if (all.length === 0) return { count: 0, status: "Unknown" };
   all.sort((x, y) => x.index - y.index);
   const last = all[all.length - 1];
