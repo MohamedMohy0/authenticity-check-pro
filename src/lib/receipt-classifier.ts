@@ -178,18 +178,43 @@ function extractTrailerIds(raw: string): Array<{ index: number; a: string; b: st
 
 interface FingerprintResult {
   count: number;
+  fingerprint1?: string;
+  fingerprint2?: string;
   identical?: boolean;
   status: "Original" | "Modified" | "Unknown";
+  error?: string;
 }
 
 function analyzeFingerprints(bytes: Uint8Array): FingerprintResult {
-  const raw = bytesToLatin1(bytes);
-  const all = extractTrailerIds(raw);
-  if (all.length === 0) return { count: 0, status: "Unknown" };
-  all.sort((x, y) => x.index - y.index);
-  const last = all[all.length - 1];
-  const identical = last.a === last.b;
-  return { count: 2, identical, status: identical ? "Original" : "Modified" };
+  try {
+    // تحويل Uint8Array إلى string (للبحث عن /ID)
+    const content = new TextDecoder('latin1').decode(bytes);
+    
+    // البحث عن مصفوفة /ID في الـ trailer
+    const idMatch = content.match(/\/ID\s*\[\s*(<[0-9A-Fa-f]+>)\s*(<[0-9A-Fa-f]+>)\s*\]/);
+    
+    if (!idMatch) {
+      return { count: 0, status: "Unknown", error: "No /ID found" };
+    }
+    
+    const fp1 = idMatch[1];
+    const fp2 = idMatch[2];
+    const identical = (fp1 === fp2);
+    
+    return {
+      count: 2,
+      fingerprint1: fp1,
+      fingerprint2: fp2,
+      identical: identical,
+      status: identical ? "Original" : "Modified"
+    };
+  } catch (e) {
+    return { 
+      count: 0, 
+      status: "Unknown", 
+      error: e instanceof Error ? e.message : String(e) 
+    };
+  }
 }
 
 function parsePdfDate(raw: string | undefined | null): Date | string | null {
