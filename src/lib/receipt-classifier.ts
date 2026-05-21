@@ -347,7 +347,8 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   const fp = analyzeFingerprints(pdfBytes);
   if (fp.status === "Modified") return { ...base, verdict: "Fake" };
 
-  const allText = pageTexts.join("\n");
+  const Text = pageTexts.join("\n");
+  const allText = Text.replace(/ /g, '');
   const isText = allText.trim().length > 0;
   if (!isText) return { ...base, verdict: "Fake" };
 
@@ -363,7 +364,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   const isSTC = allText.includes("stc Bank");
   const isABU = allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
   const isQIB = allText.includes("QIB Mobile App");
-
+  console.log(allText)
   if (isSTC) {
     const objs = countObjects(pdfBytes);
     return { ...base, verdict: objs === 11 ? "Original" : "Fake" };
