@@ -242,7 +242,9 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const m = pdfDoc.getModificationDate();
     creationRaw = c ? `D:${formatPdfDate(c)}` : undefined;
     modRaw = m ? `D:${formatPdfDate(m)}` : undefined;
-  } catch {}
+  } catch {
+    // Keep matching the original app behavior: unreadable metadata simply falls back to empty values.
+  }
 
   const creationDate = parsePdfDate(creationRaw);
   const modDate = parsePdfDate(modRaw);
@@ -269,10 +271,8 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   if (creator.includes("JasperReports Library") || producer.includes("JasperReports Library")) {
     creator2 = producer2 = "JasperReports Library";
   }
-  if (creator.includes("Microsoft Word") || producer.includes("Microsoft Word"))
-    return { ...base, verdict: "Fake" };
-  if (creator.includes("Canva") || producer.includes("Canva"))
-    return { ...base, verdict: "Fake" };
+  if (creator.includes("Microsoft Word") || producer.includes("Microsoft Word")) return { ...base, verdict: "Fake" };
+  if (creator.includes("Canva") || producer.includes("Canva")) return { ...base, verdict: "Fake" };
 
   const isSTC = allText.includes("stc Bank");
   const isABU =
@@ -292,8 +292,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     return { ...base, verdict: tables === 2 ? "Original" : "Fake" };
   }
 
-  if (producer.includes("GPL") || creator.includes("GPL"))
-    return { ...base, verdict: "Fake" };
+  if (producer.includes("GPL") || creator.includes("GPL")) return { ...base, verdict: "Fake" };
 
   if (!creationDate || !modDate || !creator2 || !producer2 || producer.includes("PDFsharp")) {
     const hasAcro = bytesIndexCount(pdfBytes, "/AcroForm") > 0;
