@@ -30,7 +30,7 @@ async function getAllText(pdfData: Uint8Array): Promise<string[]> {
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    out.push(content.items.map((it) => ((it as PdfTextItem).str ?? "")).join(" "));
+    out.push(content.items.map((it) => (it as PdfTextItem).str ?? "").join(" "));
   }
   return out;
 }
@@ -271,12 +271,12 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   if (creator.includes("JasperReports Library") || producer.includes("JasperReports Library")) {
     creator2 = producer2 = "JasperReports Library";
   }
-  if (creator.includes("Microsoft Word") || producer.includes("Microsoft Word")) return { ...base, verdict: "Fake" };
+  if (creator.includes("Microsoft Word") || producer.includes("Microsoft Word"))
+    return { ...base, verdict: "Fake" };
   if (creator.includes("Canva") || producer.includes("Canva")) return { ...base, verdict: "Fake" };
 
   const isSTC = allText.includes("stc Bank");
-  const isABU =
-    allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
+  const isABU = allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
   const isQIB = allText.includes("QIB Mobile App");
 
   if (isSTC) {
