@@ -13,8 +13,11 @@ export interface ReceiptAnalysis {
   pages: number;
 }
 
-async function loadPdfjs() {
-  const pdfjsLib: any = await import("pdfjs-dist");
+type PdfJsModule = typeof import("pdfjs-dist");
+type PdfTextItem = { str?: string };
+
+async function loadPdfjs(): Promise<PdfJsModule> {
+  const pdfjsLib = await import("pdfjs-dist");
   const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
   pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
   return pdfjsLib;
@@ -27,7 +30,7 @@ async function getAllText(pdfData: Uint8Array): Promise<string[]> {
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    out.push(content.items.map((it: any) => it.str ?? "").join(" "));
+    out.push(content.items.map((it) => (it as PdfTextItem).str ?? "").join(" "));
   }
   return out;
 }
@@ -57,6 +60,122 @@ function bytesToLatin1(bytes: Uint8Array): string {
   return s;
 }
 
+function skipPdfSpace(raw: string, i: number): number {
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === "%") {
+      while (i < raw.length && raw[i] !== "\n" && raw[i] !== "\r") i++;
+      continue;
+    }
+    if (ch === "\0" || ch === "\t" || ch === "\n" || ch === "\f" || ch === "\r" || ch === " ") {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function hexToLatin1(hex: string): string {
+  const normalized = hex.replace(/\s+/g, "").toLowerCase();
+  const padded = normalized.length % 2 === 0 ? normalized : `${normalized}0`;
+  let out = "";
+  for (let i = 0; i < padded.length; i += 2) {
+    out += String.fromCharCode(parseInt(padded.slice(i, i + 2), 16));
+  }
+  return out;
+}
+
+function parsePdfStringToken(raw: string, start: number): { value: string; next: number } | null {
+  let i = skipPdfSpace(raw, start);
+
+  if (raw[i] === "<" && raw[i + 1] !== "<") {
+    i++;
+    let value = "";
+    while (i < raw.length && raw[i] !== ">") {
+      value += raw[i];
+      i++;
+    }
+    return raw[i] === ">" ? { value: hexToLatin1(value), next: i + 1 } : null;
+  }
+
+  if (raw[i] === "(") {
+    i++;
+    let depth = 1;
+    let value = "";
+    while (i < raw.length && depth > 0) {
+      const ch = raw[i];
+      if (ch === "\\") {
+        const next = raw[i + 1] ?? "";
+        const octal = raw.slice(i + 1, i + 4).match(/^[0-7]{1,3}/)?.[0];
+        if (octal) {
+          value += String.fromCharCode(parseInt(octal, 8));
+          i += 1 + octal.length;
+          continue;
+        }
+        const escapes: Record<string, string> = { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" };
+        if (next === "\r" || next === "\n") {
+          i += next === "\r" && raw[i + 2] === "\n" ? 3 : 2;
+          continue;
+        }
+        value += escapes[next] ?? next;
+        i += 2;
+        continue;
+      }
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (depth > 0) value += ch;
+      i++;
+    }
+    return depth === 0 ? { value, next: i } : null;
+  }
+
+  return null;
+}
+
+function parseIdArrayAt(raw: string, idIndex: number): { a: string; b: string } | null {
+  let i = skipPdfSpace(raw, idIndex + 3);
+  if (raw[i] !== "[") return null;
+  i++;
+  const first = parsePdfStringToken(raw, i);
+  if (!first) return null;
+  const second = parsePdfStringToken(raw, first.next);
+  if (!second) return null;
+  return { a: first.value, b: second.value };
+}
+
+function extractTrailerIds(raw: string): Array<{ index: number; a: string; b: string }> {
+  const ids: Array<{ index: number; a: string; b: string }> = [];
+  const startXrefMatches = [...raw.matchAll(/startxref\s+(\d+)/g)];
+
+  for (const match of startXrefMatches) {
+    const offset = Number(match[1]);
+    if (!Number.isFinite(offset) || offset < 0 || offset >= raw.length) continue;
+    const window = raw.slice(offset, Math.min(raw.length, offset + 6000));
+    const localId = window.indexOf("/ID");
+    if (localId === -1) continue;
+    const parsed = parseIdArrayAt(window, localId);
+    if (parsed) ids.push({ index: offset + localId, ...parsed });
+  }
+
+  for (const match of raw.matchAll(/\btrailer\b/g)) {
+    const local = raw.slice(match.index ?? 0, Math.min(raw.length, (match.index ?? 0) + 6000));
+    const localId = local.indexOf("/ID");
+    if (localId === -1) continue;
+    const parsed = parseIdArrayAt(local, localId);
+    if (parsed) ids.push({ index: (match.index ?? 0) + localId, ...parsed });
+  }
+
+  if (ids.length === 0) {
+    for (const match of raw.matchAll(/\/ID\b/g)) {
+      const parsed = parseIdArrayAt(raw, match.index ?? 0);
+      if (parsed) ids.push({ index: match.index ?? 0, ...parsed });
+    }
+  }
+
+  return ids;
+}
+
 interface FingerprintResult {
   count: number;
   identical?: boolean;
@@ -65,18 +184,7 @@ interface FingerprintResult {
 
 function analyzeFingerprints(bytes: Uint8Array): FingerprintResult {
   const raw = bytesToLatin1(bytes);
-  // /ID can appear as hex strings <...> or literal strings (...). Allow whitespace/newlines.
-  // Use [\s\S] for cross-line tolerance.
-  const hexRe = /\/ID\s*\[\s*<([0-9a-fA-F\s]+)>\s*<([0-9a-fA-F\s]+)>\s*\]/g;
-  const litRe = /\/ID\s*\[\s*\(((?:\\.|[^\\)])*)\)\s*\(((?:\\.|[^\\)])*)\)\s*\]/g;
-
-  const all: Array<{ index: number; a: string; b: string }> = [];
-  for (const m of raw.matchAll(hexRe)) {
-    all.push({ index: m.index ?? 0, a: m[1].replace(/\s+/g, "").toLowerCase(), b: m[2].replace(/\s+/g, "").toLowerCase() });
-  }
-  for (const m of raw.matchAll(litRe)) {
-    all.push({ index: m.index ?? 0, a: m[1], b: m[2] });
-  }
+  const all = extractTrailerIds(raw);
   if (all.length === 0) return { count: 0, status: "Unknown" };
   all.sort((x, y) => x.index - y.index);
   const last = all[all.length - 1];
@@ -134,7 +242,9 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const m = pdfDoc.getModificationDate();
     creationRaw = c ? `D:${formatPdfDate(c)}` : undefined;
     modRaw = m ? `D:${formatPdfDate(m)}` : undefined;
-  } catch {}
+  } catch {
+    // Keep matching the original app behavior: unreadable metadata simply falls back to empty values.
+  }
 
   const creationDate = parsePdfDate(creationRaw);
   const modDate = parsePdfDate(modRaw);
@@ -163,12 +273,10 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   }
   if (creator.includes("Microsoft Word") || producer.includes("Microsoft Word"))
     return { ...base, verdict: "Fake" };
-  if (creator.includes("Canva") || producer.includes("Canva"))
-    return { ...base, verdict: "Fake" };
+  if (creator.includes("Canva") || producer.includes("Canva")) return { ...base, verdict: "Fake" };
 
   const isSTC = allText.includes("stc Bank");
-  const isABU =
-    allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
+  const isABU = allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
   const isQIB = allText.includes("QIB Mobile App");
 
   if (isSTC) {
@@ -184,8 +292,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     return { ...base, verdict: tables === 2 ? "Original" : "Fake" };
   }
 
-  if (producer.includes("GPL") || creator.includes("GPL"))
-    return { ...base, verdict: "Fake" };
+  if (producer.includes("GPL") || creator.includes("GPL")) return { ...base, verdict: "Fake" };
 
   if (!creationDate || !modDate || !creator2 || !producer2 || producer.includes("PDFsharp")) {
     const hasAcro = bytesIndexCount(pdfBytes, "/AcroForm") > 0;
