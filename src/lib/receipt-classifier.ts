@@ -186,33 +186,93 @@ interface FingerprintResult {
 }
 
 function analyzeFingerprints(bytes: Uint8Array): FingerprintResult {
+  
   try {
     // تحويل Uint8Array إلى string (للبحث عن /ID)
     const content = new TextDecoder('latin1').decode(bytes);
     
-    // البحث عن مصفوفة /ID في الـ trailer
-    const idMatch = content.match(/\/ID\s*\[\s*(<[0-9A-Fa-f]+>)\s*(<[0-9A-Fa-f]+>)\s*\]/);
+    // البحث عن /ID في الـ trailer مع دعم صيغ متعددة
     
+    // صيغة 1: <hex> <hex>
+    let idMatch = content.match(/\/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\]/);
+    
+    // صيغة 2: <hex> (string) - كما في ملفك
     if (!idMatch) {
-      return { count: 0, status: "Unknown", error: "No /ID found" };
+      idMatch = content.match(/\/ID\s*\[\s*<([0-9A-Fa-f]+)>\s*\(([^)]+)\)\s*\]/);
+      if (idMatch) {
+      }
     }
     
-    const fp1 = idMatch[1];
-    const fp2 = idMatch[2];
+    // صيغة 3: (string) (string)
+    if (!idMatch) {
+      idMatch = content.match(/\/ID\s*\[\s*\(([^)]+)\)\s*\(([^)]+)\)\s*\]/);
+      if (idMatch) {
+      }
+    }
+    
+    // صيغة 4: أي صيغة عامة
+    if (!idMatch) {
+      const genericMatch = content.match(/\/ID\s*\[\s*([^\]]+)\]/);
+      if (genericMatch) {
+        
+        // محاولة استخراج القيمتين
+        const parts = genericMatch[1].trim().split(/\s+/);
+        if (parts.length >= 2) {
+          let fp1 = parts[0];
+          let fp2 = parts[1];
+          
+          // إزالة الأقواس إذا وجدت
+          fp1 = fp1.replace(/^[<\(]/, '').replace(/[>\)]$/, '');
+          fp2 = fp2.replace(/^[<\(]/, '').replace(/[>\)]$/, '');
+          
+          const identical = (fp1 === fp2);
+          
+
+          return {
+            count: 2,
+            fingerprint1: fp1,
+            fingerprint2: fp2,
+            identical: identical,
+            status: identical ? "Original" : "Modified"
+          };
+        }
+      }
+    }
+    
+    if (!idMatch) {
+      return { count: 0, status: "Unknown", error: "No /ID found in any format" };
+    }
+    
+
+    
+    let fp1 = idMatch[1];
+    let fp2 = idMatch[2];
+    
+    // تنظيف البصمات من أي رموز إضافية
+    fp1 = fp1.replace(/^[<\(]/, '').replace(/[>\)]$/, '');
+    fp2 = fp2.replace(/^[<\(]/, '').replace(/[>\)]$/, '');
+    
     const identical = (fp1 === fp2);
+    
+  
+    
+    const status = identical ? "Original" : "Modified";
+
     
     return {
       count: 2,
       fingerprint1: fp1,
       fingerprint2: fp2,
       identical: identical,
-      status: identical ? "Original" : "Modified"
+      status: status
     };
   } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    
     return { 
       count: 0, 
       status: "Unknown", 
-      error: e instanceof Error ? e.message : String(e) 
+      error: errorMsg 
     };
   }
 }
