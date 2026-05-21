@@ -13,8 +13,11 @@ export interface ReceiptAnalysis {
   pages: number;
 }
 
-async function loadPdfjs() {
-  const pdfjsLib: any = await import("pdfjs-dist");
+type PdfJsModule = typeof import("pdfjs-dist");
+type PdfTextItem = { str?: string };
+
+async function loadPdfjs(): Promise<PdfJsModule> {
+  const pdfjsLib = await import("pdfjs-dist");
   const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
   pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
   return pdfjsLib;
@@ -27,7 +30,7 @@ async function getAllText(pdfData: Uint8Array): Promise<string[]> {
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    out.push(content.items.map((it: any) => it.str ?? "").join(" "));
+    out.push(content.items.map((it) => ((it as PdfTextItem).str ?? "")).join(" "));
   }
   return out;
 }
@@ -73,6 +76,16 @@ function skipPdfSpace(raw: string, i: number): number {
   return i;
 }
 
+function hexToLatin1(hex: string): string {
+  const normalized = hex.replace(/\s+/g, "").toLowerCase();
+  const padded = normalized.length % 2 === 0 ? normalized : `${normalized}0`;
+  let out = "";
+  for (let i = 0; i < padded.length; i += 2) {
+    out += String.fromCharCode(parseInt(padded.slice(i, i + 2), 16));
+  }
+  return out;
+}
+
 function parsePdfStringToken(raw: string, start: number): { value: string; next: number } | null {
   let i = skipPdfSpace(raw, start);
 
@@ -80,10 +93,10 @@ function parsePdfStringToken(raw: string, start: number): { value: string; next:
     i++;
     let value = "";
     while (i < raw.length && raw[i] !== ">") {
-      if (!/\s/.test(raw[i])) value += raw[i].toLowerCase();
+      value += raw[i];
       i++;
     }
-    return raw[i] === ">" ? { value: `<${value}>`, next: i + 1 } : null;
+    return raw[i] === ">" ? { value: hexToLatin1(value), next: i + 1 } : null;
   }
 
   if (raw[i] === "(") {
@@ -93,7 +106,19 @@ function parsePdfStringToken(raw: string, start: number): { value: string; next:
     while (i < raw.length && depth > 0) {
       const ch = raw[i];
       if (ch === "\\") {
-        value += ch + (raw[i + 1] ?? "");
+        const next = raw[i + 1] ?? "";
+        const octal = raw.slice(i + 1, i + 4).match(/^[0-7]{1,3}/)?.[0];
+        if (octal) {
+          value += String.fromCharCode(parseInt(octal, 8));
+          i += 1 + octal.length;
+          continue;
+        }
+        const escapes: Record<string, string> = { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" };
+        if (next === "\r" || next === "\n") {
+          i += next === "\r" && raw[i + 2] === "\n" ? 3 : 2;
+          continue;
+        }
+        value += escapes[next] ?? next;
         i += 2;
         continue;
       }
