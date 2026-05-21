@@ -1,8 +1,4 @@
-import * as pdfjsLib from "pdfjs-dist";
-import workerSrc from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { PDFDocument } from "pdf-lib";
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+// Lazy imports inside functions to avoid SSR ("DOMMatrix is not defined")
 
 const CREATORS = new Set(["Chromium", "JasperReports Library"]);
 
@@ -17,7 +13,15 @@ export interface ReceiptAnalysis {
   pages: number;
 }
 
+async function loadPdfjs() {
+  const pdfjsLib: any = await import("pdfjs-dist");
+  const workerSrc = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+  return pdfjsLib;
+}
+
 async function getAllText(pdfData: Uint8Array): Promise<string[]> {
+  const pdfjsLib = await loadPdfjs();
   const doc = await pdfjsLib.getDocument({ data: pdfData }).promise;
   const out: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
@@ -61,13 +65,22 @@ interface FingerprintResult {
 
 function analyzeFingerprints(bytes: Uint8Array): FingerprintResult {
   const raw = bytesToLatin1(bytes);
-  // Match last /ID array in trailer
-  const matches = [...raw.matchAll(/\/ID\s*\[\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*\]/g)];
-  if (matches.length === 0) return { count: 0, status: "Unknown" };
-  const last = matches[matches.length - 1];
-  const fp1 = last[1].toLowerCase();
-  const fp2 = last[2].toLowerCase();
-  const identical = fp1 === fp2;
+  // /ID can appear as hex strings <...> or literal strings (...). Allow whitespace/newlines.
+  // Use [\s\S] for cross-line tolerance.
+  const hexRe = /\/ID\s*\[\s*<([0-9a-fA-F\s]+)>\s*<([0-9a-fA-F\s]+)>\s*\]/g;
+  const litRe = /\/ID\s*\[\s*\(((?:\\.|[^\\)])*)\)\s*\(((?:\\.|[^\\)])*)\)\s*\]/g;
+
+  const all: Array<{ index: number; a: string; b: string }> = [];
+  for (const m of raw.matchAll(hexRe)) {
+    all.push({ index: m.index ?? 0, a: m[1].replace(/\s+/g, "").toLowerCase(), b: m[2].replace(/\s+/g, "").toLowerCase() });
+  }
+  for (const m of raw.matchAll(litRe)) {
+    all.push({ index: m.index ?? 0, a: m[1], b: m[2] });
+  }
+  if (all.length === 0) return { count: 0, status: "Unknown" };
+  all.sort((x, y) => x.index - y.index);
+  const last = all[all.length - 1];
+  const identical = last.a === last.b;
   return { count: 2, identical, status: identical ? "Original" : "Modified" };
 }
 
@@ -96,7 +109,9 @@ function countObjects(bytes: Uint8Array): number {
 }
 
 export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnalysis> {
-  // Page count
+  const { PDFDocument } = await import("pdf-lib");
+  const pdfjsLib = await loadPdfjs();
+
   let pages = 0;
   let pageTexts: string[] = [];
   try {
@@ -107,7 +122,6 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     pages = 0;
   }
 
-  // Metadata via pdf-lib
   let creator = "";
   let producer = "";
   let creationRaw: string | undefined;
@@ -116,7 +130,6 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const pdfDoc = await PDFDocument.load(pdfBytes, { updateMetadata: false });
     creator = pdfDoc.getCreator() || "";
     producer = pdfDoc.getProducer() || "";
-    // Raw dates - pdf-lib returns Date; we need original raw to compare equality of strings
     const c = pdfDoc.getCreationDate();
     const m = pdfDoc.getModificationDate();
     creationRaw = c ? `D:${formatPdfDate(c)}` : undefined;
@@ -136,7 +149,6 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
 
   if (pages > 1) return { ...base, verdict: "NotReceipt" };
 
-  // Fingerprint check
   const fp = analyzeFingerprints(pdfBytes);
   if (fp.status === "Modified") return { ...base, verdict: "Fake" };
 
