@@ -127,7 +127,7 @@ function parsePdfStringToken(raw: string, start: number): { value: string; next:
       if (depth > 0) value += ch;
       i++;
     }
-    return depth === 0 ? { value: `(${value})`, next: i } : null;
+    return depth === 0 ? { value, next: i } : null;
   }
 
   return null;
