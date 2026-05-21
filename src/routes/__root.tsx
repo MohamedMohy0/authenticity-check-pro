@@ -76,10 +76,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "تحقق من أصالة وصولات التحويل البنكية بسرعة وأمان." },
       { name: "author", content: "UFRC" },
       { property: "og:title", content: "فحص الوصولات | UFRC" },
-      { property: "og:description", content: "تحقق من أصالة وصولات التحويل البنكية." },
+      { property: "og:description", content: "تحقق من أصالة وصولات التحويل البنكية بسرعة وأمان." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "فحص الوصولات | UFRC" },
+      { name: "twitter:description", content: "تحقق من أصالة وصولات التحويل البنكية بسرعة وأمان." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3bac0ee0-85cd-44fd-b857-4cdaf86e7f7b/id-preview-5c0ae922--31f21693-c2cb-4261-b6ce-ace59cf1ec23.lovable.app-1779380482290.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/3bac0ee0-85cd-44fd-b857-4cdaf86e7f7b/id-preview-5c0ae922--31f21693-c2cb-4261-b6ce-ace59cf1ec23.lovable.app-1779380482290.png" },
     ],
     links: [
       {
