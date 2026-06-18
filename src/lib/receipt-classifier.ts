@@ -344,8 +344,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
 
   if (pages > 1) return { ...base, verdict: "NotReceipt" };
 
-  const fp = analyzeFingerprints(pdfBytes);
-  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
+
 
   const Text = pageTexts.join("\n");
   const allText = Text.replace(/ /g, '');
@@ -390,7 +389,8 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const edited = hasAcro || eofCount > 1;
     return { ...base, verdict: edited ? "Fake" : "Original" };
   }
-
+  const fp = analyzeFingerprints(pdfBytes);
+  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
   const sameDates =
     creationDate instanceof Date &&
     modDate instanceof Date &&
@@ -398,10 +398,11 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   if (sameDates && (CREATORS.has(creator2) || CREATORS.has(producer2))) {
     return { ...base, verdict: "Original" };
   }
+  
   return { ...base, verdict: "Fake" };
+  
 }
-  const fp = analyzeFingerprints(pdfBytes);
-  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
+
 
 function formatPdfDate(d: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
