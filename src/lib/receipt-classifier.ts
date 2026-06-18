@@ -364,6 +364,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   const isSTC = allText.includes("stc Bank");
   const isABU = allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
   const isQIB = allText.includes("QIB Mobile App");
+  const isAnim=allText.includes("Alinma VAT Number");
   console.log(allText)
   if (isSTC) {
     const objs = countObjects(pdfBytes);
@@ -377,7 +378,10 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const tables = bytesIndexCount(pdfBytes, "xref");
     return { ...base, verdict: tables === 2 ? "Original" : "Fake" };
   }
-
+  if (isAnim) {
+    const objs = countObjects(pdfBytes);
+    return { ...base, verdict: objs === 14 ? "Original" : "Fake" };
+  }
   if (producer.includes("GPL") || creator.includes("GPL")) return { ...base, verdict: "Fake" };
 
   if (!creationDate || !modDate || !creator2 || !producer2 || producer.includes("PDFsharp")) {
