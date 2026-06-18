@@ -381,6 +381,8 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const objs = countObjects(pdfBytes);
     return { ...base, verdict: objs === 14 ? "Original" : "Fake" };
   }
+  const fp = analyzeFingerprints(pdfBytes);
+  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
   if (producer.includes("GPL") || creator.includes("GPL")) return { ...base, verdict: "Fake" };
 
   if (!creationDate || !modDate || !creator2 || !producer2 || producer.includes("PDFsharp")) {
@@ -389,8 +391,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
     const edited = hasAcro || eofCount > 1;
     return { ...base, verdict: edited ? "Fake" : "Original" };
   }
-  const fp = analyzeFingerprints(pdfBytes);
-  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
+
   const sameDates =
     creationDate instanceof Date &&
     modDate instanceof Date &&
