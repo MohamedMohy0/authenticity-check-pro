@@ -363,7 +363,7 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   const isSTC = allText.includes("stc Bank");
   const isABU = allText.includes("ﻣﺼﺮف أﺑﻮﻇﺒﻲ اﻟﺈﺳﻼﻣﻲ") || allText.includes("AbuDhabiIslamicBank");
   const isQIB = allText.includes("QIB Mobile App");
-  const isAnim=allText.includes("Alinma VAT Number");
+  const isAnim=allText.includes("Alinma VAT Number") || allText.includes("AlinmaVATNumber");
   console.log(allText)
   if (isSTC) {
     const objs = countObjects(pdfBytes);
