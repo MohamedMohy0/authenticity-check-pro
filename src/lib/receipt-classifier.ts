@@ -400,6 +400,8 @@ export async function classifyReceipt(pdfBytes: Uint8Array): Promise<ReceiptAnal
   }
   return { ...base, verdict: "Fake" };
 }
+  const fp = analyzeFingerprints(pdfBytes);
+  if (fp.status === "Modified") return { ...base, verdict: "Fake" };
 
 function formatPdfDate(d: Date): string {
   const p = (n: number, w = 2) => String(n).padStart(w, "0");
