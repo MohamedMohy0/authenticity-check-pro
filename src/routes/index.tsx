@@ -1,17 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   classifyReceipt,
   type ReceiptAnalysis,
 } from "@/lib/receipt-classifier";
-import { CheckCircle2, XCircle, FileWarning, Upload, Loader2, ShieldCheck, CalendarClock } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  FileWarning,
+  Upload,
+  Loader2,
+  ShieldCheck,
+  CalendarClock,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   component: Index,
   head: () => ({
     meta: [
       { title: "فحص الوصولات | UFRC" },
-      { name: "description", content: "تحقق من أصالة وصولات التحويل البنكية بسرعة وأمان." },
+      {
+        name: "description",
+        content: "تحقق من أصالة وصولات التحويل البنكية بسرعة وأمان.",
+      },
     ],
   }),
 });
@@ -37,8 +48,26 @@ function Index() {
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // تحميل سكريبت الإعلان عند فتح الصفحة
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src =
+      "https://pl30581619.effectivecpmnetwork.com/61319bf6678df0fc79620669ee82fa5c/invoke.js";
+    script.async = true;
+    script.setAttribute("data-cfasync", "false");
+    document.body.appendChild(script);
+
+    return () => {
+      // تنظيف السكريبت عند مغادرة الصفحة (اختياري)
+      document.body.removeChild(script);
+    };
+  }, []);
+
   const handleFile = useCallback(async (file: File) => {
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    if (
+      file.type !== "application/pdf" &&
+      !file.name.toLowerCase().endsWith(".pdf")
+    ) {
       setError("الرجاء رفع ملف بصيغة PDF فقط");
       return;
     }
@@ -92,7 +121,8 @@ function Index() {
             التحقق من وصل التحويل
           </h1>
           <p className="mt-2 text-sm text-muted-foreground sm:text-base">
-            الموقع مدعوم بالكامل من قبل فريق <span className="font-semibold text-foreground">UFRC</span>
+            الموقع مدعوم بالكامل من قبل فريق{" "}
+            <span className="font-semibold text-foreground">UFRC</span>
           </p>
           <span className="mt-3 inline-flex items-center gap-1 rounded-full bg-warning/15 px-3 py-1 text-xs font-medium text-warning-foreground">
             <span className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -148,7 +178,9 @@ function Index() {
           {loading && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <Loader2 className="h-10 w-10 animate-spin text-primary" />
-              <p className="mt-4 text-base font-medium">يرجى الانتظار، يتم التحقق من الوصل…</p>
+              <p className="mt-4 text-base font-medium">
+                يرجى الانتظار، يتم التحقق من الوصل…
+              </p>
               {fileName && (
                 <p className="mt-1 text-xs text-muted-foreground">{fileName}</p>
               )}
@@ -165,6 +197,11 @@ function Index() {
             <ResultCard result={result} fileName={fileName} onReset={reset} />
           )}
         </section>
+
+        {/* حاوية الإعلان */}
+        <div className="mt-6 flex justify-center">
+          <div id="container-61319bf6678df0fc79620669ee82fa5c"></div>
+        </div>
 
         <footer className="mt-8 text-center text-xs text-muted-foreground">
           © {new Date().getFullYear()} UFRC — جميع الحقوق محفوظة
@@ -237,9 +274,14 @@ function ResultCard({
           <div className="flex-1">
             <p className="text-xs font-medium text-muted-foreground">ملاحظة</p>
             <p className="mt-0.5 text-sm leading-relaxed text-foreground">
-              {created
-                ? <>تم إنشاء هذا الوصل بتاريخ <span className="font-semibold">{created}</span></>
-                : "تاريخ الإنشاء غير متوفر في بيانات الملف"}
+              {created ? (
+                <>
+                  تم إنشاء هذا الوصل بتاريخ{" "}
+                  <span className="font-semibold">{created}</span>
+                </>
+              ) : (
+                "تاريخ الإنشاء غير متوفر في بيانات الملف"
+              )}
             </p>
           </div>
         </div>
